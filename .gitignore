@@ -1,0 +1,8 @@
+bin/*
+mak/*
+dep/*
+lib/*
+obj/*
+data/*
+.*.swp
+
