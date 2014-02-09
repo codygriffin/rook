@@ -64,12 +64,12 @@ struct Layer {
   }
 
   // Sigmoid Activation
-  float activation(float z) {
+  static float activation(float z) {
     return 1.0f/(1.0f + expf(-z));
   }
 
   // Sigmoid Derivative
-  float derivative(float y) {
+  static float derivative(float y) {
     return y*(1.0f - y);
   }
 

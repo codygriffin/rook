@@ -25,8 +25,8 @@
 #  SOFTWARE.
 #
 
-# Stupid OS X - this should probably be an environment var
-CC      := /usr/local/bin/g++-4.9 
+# We want to use g++ (or clang++ on OSX)
+CC      := g++
 
 # Some lovely directories
 BIN_DIR := ./bin
@@ -43,6 +43,8 @@ BUILD_DIRS := $(BIN_DIR) $(OBJ_DIR) $(DEP_DIR) $(DAT_DIR)
 
 # Some lovely CFLAGs
 CFLAGS  := -std=gnu++0x
+# No libs yet
+#CFLAGS  := -L$(LIB_DIR) 
 
 # Some lovely DEBUG options (make DEBUG=1)
 ifdef DEBUG
@@ -89,7 +91,7 @@ define TEST_CASE
 
 # Building $1 tests
 $(BIN_DIR)/$(1): $2 $4 | $(BIN_DIR) $(DEP_DIR) $(OBJ_DIR) 
-	$(CC) $(CFLAGS) -o $$@ $2 -pthread -L$(LIB_DIR) -I$$(INC_DIR) -MMD -MT $$@ -MF $(DEP_DIR)/$$(notdir $$(basename $$<)).d 
+	$(CC) $(CFLAGS) -o $$@ $2 -pthread -I$$(INC_DIR) -MMD -MT $$@ -MF $(DEP_DIR)/$$(notdir $$(basename $$<)).d 
 
 # Test case target 
 test/$1: $$(BIN_DIR)/$1
