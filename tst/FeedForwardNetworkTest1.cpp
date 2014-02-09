@@ -31,7 +31,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <cstdint>
-#include <array>
+#include <tuple>
 #include <fstream>
 #include <chrono>
 
@@ -52,6 +52,7 @@
                      | (((x) & 0x0000FF00) << 8) \
                      |  ((x) << 24))
 
+//------------------------------------------------------------------------------
 // For some primitive performance analysis
 template <typename Resolution = std::chrono::nanoseconds>
 struct Stopwatch {
@@ -64,105 +65,154 @@ struct Stopwatch {
   }
 };
 
-int main () {
-  srand (time(NULL));
+//------------------------------------------------------------------------------
+// Helper class for loading data from the MNIST files
+struct MnistData {
+  typedef std::vector<uint8_t> Image;
+  typedef uint8_t              Label;
+
+  MnistData(const std::string& imageFile, const std::string& labelFile) {
+    std::ifstream images, labels;
+    images.open(imageFile, std::ios::binary);
+    labels.open(labelFile, std::ios::binary);
+
+    uint32_t magic, numLabels;
+    images.read(reinterpret_cast<char*>(&magic),      sizeof(uint32_t));
+    images.read(reinterpret_cast<char*>(&numImages_), sizeof(uint32_t));
+    images.read(reinterpret_cast<char*>(&numRows_),   sizeof(uint32_t));
+    images.read(reinterpret_cast<char*>(&numCols_),   sizeof(uint32_t));
+
+    labels.read(reinterpret_cast<char*>(&magic),      sizeof(uint32_t));
+    labels.read(reinterpret_cast<char*>(&numLabels),  sizeof(uint32_t));
+
+    numImages_ = SWAP_UINT32(numImages_);
+    numLabels  = SWAP_UINT32(numLabels);
+    numRows_   = SWAP_UINT32(numRows_);
+    numCols_   = SWAP_UINT32(numCols_);
+
+    uint8_t             pixel, label;
+    Image               image(numRows_ * numCols_);
+    imageData_.resize(numImages_);
+    for (int c = 0; c < numImages_; c++) { 
+      for (int y = 0; y < numRows_; y++) { 
+        for (int x = 0; x < numCols_; x++) { 
+          images.read(reinterpret_cast<char*>(&pixel), sizeof(uint8_t));
+          image[(y*numCols_ + x)] = pixel; 
+        }
+      }
+
+      labels.read(reinterpret_cast<char*>(&label), sizeof(uint8_t));
+      imageData_[c] = std::make_tuple(image,label);
+    }
+  }
   
-  typedef rook::Layer<784, 350> InputLayer;
-  typedef rook::Layer<350,  10> OutputLayer;
+  // Do something for each image and label
+  void each(std::function<void (const Image&, const Label&)> f) { 
+    for (auto image : imageData_) {
+      f(std::get<0>(image), std::get<1>(image));
+    }
+  }
+  
+  uint32_t                                numRows_;
+  uint32_t                                numCols_;
+  uint32_t                                numImages_;
+private:
+  std::vector<std::tuple<Image, Label>>   imageData_;
+};
+
+//------------------------------------------------------------------------------
+// Some typedefs for convenience
+// TODO Layer should be run-time parameterized
+// which means that Matrix should be run-time
+// parameterized 
+typedef rook::Layer<784, 350> InputLayer;
+typedef rook::Layer<350,  10> OutputLayer;
+
+// Some helper functions for get MNIST into our net
+// Note that dimensions must be the same - this is 
+// big mismatch between compile-time and run-time 
+// parameterization
+InputLayer::Input encodeImage(const MnistData::Image& image) {
+  InputLayer::Input input;
+  for (int x = 0; x < image.size(); x++) { 
+    input.at(x) = image[x]/255.0f; 
+  }
+  return input;
+}
+
+OutputLayer::Output encodeLabel(const MnistData::Label& label) {
+  OutputLayer::Output output;
+  return output.vapply([&](size_t i) -> float {
+    return (i == label)?1.0f:0.0f; 
+  }); 
+}
+
+MnistData::Label decodeOutput(const OutputLayer::Output& output) {
+  int guess = 0;
+  for (int i = 0; i < 10; i++) {
+    if (output.at(i) > output.at(guess)) {
+      guess = i;
+    }    
+  }
+  return guess;
+}
+
+//------------------------------------------------------------------------------
+
+int main () {
+  // Define a feedfoward network using our layers from above
+  // The benefit of compile-time parameterization is clear
+  // here: you know immediately if you mismatched layers
   rook::FeedForwardNetwork<
     InputLayer, 
     OutputLayer
-  > net;
+  > mnist;
 
-  std::ifstream images;
-  std::ifstream labels;
-  images.open("data/train-images-idx3-ubyte", std::ios::binary);
-  labels.open("data/train-labels-idx1-ubyte", std::ios::binary);
+  // Load our MNIST data
+  MnistData trainingData("data/train-images-idx3-ubyte",
+                         "data/train-labels-idx1-ubyte");
+  MnistData     testData("data/t10k-images-idx3-ubyte",
+                         "data/t10k-labels-idx1-ubyte");
 
-  uint32_t magic, numImages, numLabels, numRows, numCols;
-  images.read(reinterpret_cast<char*>(&magic),     sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numImages), sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numRows),   sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numCols),   sizeof(uint32_t));
-
-  labels.read(reinterpret_cast<char*>(&magic),     sizeof(uint32_t));
-  labels.read(reinterpret_cast<char*>(&numLabels), sizeof(uint32_t));
-
-  numImages = SWAP_UINT32(numImages);
-  numRows   = SWAP_UINT32(numRows);
-  numCols   = SWAP_UINT32(numCols);
-
-  uint8_t             pixel;
-  uint8_t             label;
+  // Some helpful temporaries
+  unsigned            correct = 0;
+  uint8_t             guess;
   InputLayer::Input   digit;
   OutputLayer::Output output;
-  for (int c = 0; c < numImages; c++) { 
-    for (int y = 0; y < numRows; y++) { 
-      for (int x = 0; x < numCols; x++) { 
-        images.read(reinterpret_cast<char*>(&pixel), sizeof(uint8_t));
-        digit.at(y*28 + x) = pixel/255.0f; 
-      }
-    }
-    labels.read(reinterpret_cast<char*>(&label), sizeof(uint8_t));
 
-    output = output.vapply([&](size_t i) -> float {
-      return (i == label)?1.0f:0.0f; 
-    }); 
-
+  //----------------------------------------------------------------------------
+  // Training Time
+  trainingData.each([&](const MnistData::Image& image, const MnistData::Label& label) {
+    digit  = encodeImage(image);
+    output = encodeLabel(label);
+  
     auto nanos = Stopwatch<std::chrono::microseconds>::clock([&] {
-      net.learn(digit, output);
+      mnist.learn(digit, output);
     });
 
     std::cout << "Took " << nanos << "µs.  Learned a " << (unsigned)label << std::endl;
-  }
+  });
 
-  images.close();
-  labels.close();
-  images.open("data/t10k-images-idx3-ubyte", std::ios::binary);
-  labels.open("data/t10k-labels-idx1-ubyte", std::ios::binary);
-
-  images.read(reinterpret_cast<char*>(&magic),     sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numImages), sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numRows),   sizeof(uint32_t));
-  images.read(reinterpret_cast<char*>(&numCols),   sizeof(uint32_t));
-
-  labels.read(reinterpret_cast<char*>(&magic),     sizeof(uint32_t));
-  labels.read(reinterpret_cast<char*>(&numLabels), sizeof(uint32_t));
-
-  numImages = SWAP_UINT32(numImages);
-  numRows   = SWAP_UINT32(numRows);
-  numCols   = SWAP_UINT32(numCols);
-
-  unsigned correct = 0;
-  for (int c = 0; c < numImages; c++) { 
-    for (int y = 0; y < numRows; y++) { 
-      for (int x = 0; x < numCols; x++) { 
-        images.read(reinterpret_cast<char*>(&pixel), sizeof(uint8_t));
-        digit.at(y*28 + x) = pixel/255.0f; 
-      }
-    }
-    labels.read(reinterpret_cast<char*>(&label), sizeof(uint8_t));
+  //----------------------------------------------------------------------------
+  // Test Time
+  testData.each([&](const MnistData::Image& image, const MnistData::Label& label) {
+    digit = encodeImage(image);
 
     auto nanos = Stopwatch<std::chrono::microseconds>::clock([&] {
-      output = net.infer(digit);
+      output = mnist(digit);
     });
 
-    int guess = 0;
-    for (int i = 0; i < 10; i++) {
-      if (output.at(i) > output.at(guess)) {
-        guess = i;
-      }    
-    }
+    guess = decodeOutput(output);
     if (guess == label) correct++;
 
     std::cout << "Took " << nanos << "µs.  Guessed a " << (unsigned)guess 
               << " (should be " << (unsigned)label << ")" << std::endl;
-  }
+  });
   
-  std::cout << "Number of images: " << numImages << std::endl;
+  std::cout << "Number of images: " << testData.numImages_ << std::endl;
   std::cout << "Number correct: "   << correct   << std::endl;
   std::cout << "Test Error: " << std::setprecision(2) << std::fixed 
-            << (1.0f - (float)correct/(float)numImages) * 100.0f << "%" << std::endl;
+            << (1.0f - (float)correct/(float)testData.numImages_) * 100.0f << "%" << std::endl;
 }
 
 //------------------------------------------------------------------------------

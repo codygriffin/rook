@@ -48,20 +48,13 @@ struct Layer {
   constexpr static float initialMean      = 0.0f;
   constexpr static float initialDeviation = 0.3f;
 
+  // typedefs for our input and output vectors
   typedef ColVector<X,      float> Input;
   typedef ColVector<Y,      float> Output;
+
+  // typedef for our weight matrix - note the added
+  // bias on the input
   typedef    Matrix<Y, X+1, float> WeightMatrix;
-
-  Layer() {
-    static std::random_device device;
-    static std::mt19937 generator(device());
-    static std::normal_distribution<float> normal(initialMean, initialDeviation);
-
-    // Randomly initialize weights with a normal distribution
-    weightMatrix_ = weightMatrix_.apply([](size_t i, size_t j) {
-      return normal(generator);
-    });
-  }
 
   // Sigmoid Activation
   static float activation(float z) {
@@ -73,6 +66,17 @@ struct Layer {
     return y*(1.0f - y);
   }
 
+  Layer() {
+    static std::random_device              device;
+    static std::mt19937                    generator(device());
+    static std::normal_distribution<float> normal(initialMean, initialDeviation);
+
+    // Randomly initialize weights with a normal distribution
+    weightMatrix_ = weightMatrix_.apply([](size_t i, size_t j) {
+      return normal(generator);
+    });
+  }
+
   // For inference, we take an input vector and 
   // calculate an output vector according to
   // our activation function 
@@ -82,7 +86,8 @@ struct Layer {
     const auto biased = aug1(input, 1.0f);
     const auto sum    = (weightMatrix_ * biased);
 
-    // Apply our activate
+    // Apply our activation function to each
+    // output
     return sum.apply([&](float z) -> float {
       return activation(z); 
     });
@@ -96,25 +101,22 @@ struct Layer {
 
   Input
   learn(Input  const& x, Output const& y, Output const& e) {
+    // For each output 
     for (auto i = 0; i < Y; i++) {
+      // Look at each input from the previous layer
       for (auto j = 0; j < X; j++) {
+        // Calculate the partial deriviate of the error with
+        // respect to the weight
         auto dE = e.at(i) * derivative(y.at(i)) * x.at(j);
+
+        // Adjust our weights according to this error
+        // derivative and the learning rate
         weightMatrix_.at(i,j) += dE * learningRate;
       }
     }
 
+    // Back propagate the error
     return strip1(weightMatrix_.transpose() * e);
-  }
-
-  const WeightMatrix& 
-  getWeights() const {
-    return weightMatrix_;
-  }
-
-  void 
-  print() const {
-    std::cout << "Layer: |X| = " << X << ", |Y| = " << Y << std::endl;
-    weightMatrix_.print("Weights");
   }
 
 private:
