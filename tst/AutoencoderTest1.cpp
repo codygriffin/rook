@@ -24,7 +24,11 @@
 *  SOFTWARE.
 */
 
-#include "FeedForwardNetwork.h"
+#include "Autoencoder.h"
+
+#ifdef GRAPHICS
+#include <Magick++.h>
+#endif
 
 #include <iostream>
 #include <sstream>
@@ -32,6 +36,7 @@
 #include <iomanip>
 #include <cstdint>
 #include <tuple>
+#include <vector>
 #include <fstream>
 #include <chrono>
 
@@ -121,12 +126,38 @@ private:
 };
 
 //------------------------------------------------------------------------------
-// Some typedefs for convenience
-// TODO Layer should be run-time parameterized
-// which means that Matrix should be run-time
-// parameterized 
-typedef rook::Layer<784, 350> InputLayer;
-typedef rook::Layer<350,  10> OutputLayer;
+
+typedef rook::Autoencoder<784, 300> Encoder;
+
+// Some helper functions for get MNIST into our net
+// Note that dimensions must be the same - this is 
+// big mismatch between compile-time and run-time 
+// parameterization
+Encoder::Input encodeImage(const MnistData::Image& image) {
+  Encoder::Input input;
+  for (int x = 0; x < image.size(); x++) { 
+    input.at(x) = image[x]/255.0f; 
+  }
+  return input;
+}
+
+MnistData::Image decodeImage(const Encoder::Input& input) {
+  MnistData::Image image;
+  for (int x = 0; x < input.raw().size(); x++) { 
+    image.push_back((uint8_t)floor(input.raw()[x] * 255.0f));
+  }
+  return image;
+}
+
+MnistData::Image decodeFilter(const Encoder::Input& input) {
+  MnistData::Image image;
+  for (int x = 0; x < input.raw().size(); x++) { 
+    image.push_back((uint8_t)floor(((input.raw()[x] + 1.0f)/2.0f) * 255.0f));
+  }
+  return image;
+}
+
+//------------------------------------------------------------------------------
 
 template <size_t N>
 float mag(const rook::Matrix<N, 1>& vec) {
@@ -137,44 +168,10 @@ float mag(const rook::Matrix<N, 1>& vec) {
   return sqrtf(result);
 }
 
-// Some helper functions for get MNIST into our net
-// Note that dimensions must be the same - this is 
-// big mismatch between compile-time and run-time 
-// parameterization
-InputLayer::Input encodeImage(const MnistData::Image& image) {
-  InputLayer::Input input;
-  for (int x = 0; x < image.size(); x++) { 
-    input.at(x) = image[x]/255.0f; 
-  }
-  return input;
-}
-
-OutputLayer::Output encodeLabel(const MnistData::Label& label) {
-  return OutputLayer::Output([&](size_t i) -> float {
-    return (i == label)?1.0f:0.0f; 
-  }); 
-}
-
-MnistData::Label decodeOutput(const OutputLayer::Output& output) {
-  int guess = 0;
-  for (int i = 0; i < 10; i++) {
-    if (output.at(i) > output.at(guess)) {
-      guess = i;
-    }    
-  }
-  return guess;
-}
-
 //------------------------------------------------------------------------------
 
-int main () {
-  // Define a feedfoward network using our layers from above
-  // The benefit of compile-time parameterization is clear
-  // here: you know immediately if you mismatched layers
-  rook::FeedForwardNetwork<
-    InputLayer, 
-    OutputLayer
-  > mnist;
+int main (int argc, char ** argv) {
+  Encoder encoder;
 
   // Load our MNIST data
   MnistData trainingData("data/train-images-idx3-ubyte",
@@ -182,48 +179,88 @@ int main () {
   MnistData     testData("data/t10k-images-idx3-ubyte",
                          "data/t10k-labels-idx1-ubyte");
 
-  // Some helpful temporaries
-  unsigned            correct = 0;
-  uint8_t             guess;
-  InputLayer::Input   digit, ierror;
-  OutputLayer::Output output, oerror;
+#ifdef GRAPHICS
+  Magick::InitializeMagick(*argv);
+#endif
 
-  //----------------------------------------------------------------------------
-  // Training Time
-  for (int i = 0; i < 4; i++)
+  auto count = 0;
   trainingData.each([&](const MnistData::Image& image, const MnistData::Label& label) {
-    digit  = encodeImage(image);
-    output = encodeLabel(label);
-  
-    auto nanos = Stopwatch<std::chrono::microseconds>::clock([&] {
-      std::tie(ierror, oerror) = mnist.learn(digit, output);
-    });
-
-    std::cout << "Took "      << nanos           << "µs.  "
-              << "Learned a " << (unsigned)label << ".  "
-              << "Error was " << mag(oerror)     << std::endl;
+    const auto digit = encodeImage(image);
+    const auto error = encoder.learn(digit, 0.01f);
+    std::cout << "Error: " << mag(error) << std::endl;
   });
 
-  //----------------------------------------------------------------------------
-  // Test Time
+#ifdef GRAPHICS
+  Magick::Montage montageSettings;
+  std::vector<Magick::Image> digits;
+  std::vector<Magick::Image> montage; 
+#endif
+
   testData.each([&](const MnistData::Image& image, const MnistData::Label& label) {
-    digit = encodeImage(image);
-
-    auto nanos = Stopwatch<std::chrono::microseconds>::clock([&] {
-      output = mnist.infer(digit);
-    });
-
-    guess = decodeOutput(output);
-    if (guess == label) correct++;
-
-    std::cout << "Took " << nanos << "µs.  Guessed a " << (unsigned)guess 
-              << " (should be " << (unsigned)label << ")" << std::endl;
-  });
+    const auto digit           = encodeImage(image);
+    const auto reconstruction  = encoder.reconstruct(digit);
+    std::cout << "Error: " << mag(digit - reconstruction) << std::endl;
   
-  std::cout << "Number of images: " << testData.numImages_ << std::endl;
-  std::cout << "Number correct: "   << correct   << std::endl;
-  std::cout << "Test Error: " << std::setprecision(2) << std::fixed 
-            << (1.0f - (float)correct/(float)testData.numImages_) * 100.0f << "%" << std::endl;
+    #ifdef GRAPHICS
+    // Sample our reconstructions
+    if (count % 250 == 0) {
+      auto blob  = Magick::Blob(); 
+      auto blob2 = Magick::Blob(); 
+      auto rawi  = decodeImage(digit);
+      auto rawo  = decodeImage(reconstruction);
+      auto img0  = Magick::Image();
+      auto img1  = Magick::Image();
+
+      blob.update(rawi.data(), rawi.size() * sizeof(float));
+      blob2.update(rawo.data(), rawo.size() * sizeof(float));
+
+      img0.magick("GRAY");
+      img0.size("28x28");
+      img0.depth(8);
+      img0.read(blob);
+      img1.magick("GRAY");
+      img1.size("28x28");
+      img1.depth(8);
+      img1.read(blob2);
+
+      digits.push_back(img0);
+      digits.push_back(img1);
+    }
+    #endif
+
+    count++;
+  });
+
+#ifdef GRAPHICS
+  montageSettings.tile( "4x20" );
+  montageSettings.geometry( "28x28+2+2" );
+  Magick::montageImages(&montage, digits.begin(), digits.end(), montageSettings);
+  Magick::writeImages(montage.begin(), montage.end(), "img/test.png" );
+
+  auto weights = encoder.getWeightMatrix();
+  std::vector<Magick::Image> filters;
+  filters.resize(weights.cols);
+  montage.clear();
+
+  weights.eachCol([&](size_t j, const rook::ColVector<784>& col) {
+    auto blob  = Magick::Blob(); 
+    auto fmag  = mag(col);
+    auto ncol  = col.apply([fmag](float a) {
+      return a/fmag;
+    });
+    auto raw   = decodeFilter(col);
+
+    blob.update(raw.data(), raw.size() * sizeof(float));
+    filters[j].magick("GRAY");
+    filters[j].size("28x28");
+    filters[j].depth(8);
+    filters[j].read(blob);
+  });
+
+  montageSettings.tile( "25x12" );
+  Magick::montageImages(&montage, filters.begin(), filters.end(), montageSettings);
+  Magick::writeImages(montage.begin(), montage.end(), "img/filters.png" );
+#endif
 }
 
 //------------------------------------------------------------------------------

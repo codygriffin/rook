@@ -27,6 +27,7 @@
 
 # We want to use g++ (or clang++ on OSX)
 CC      := g++
+#CC      := /usr/local/bin/g++-4.9
 
 # Some lovely directories
 BIN_DIR := ./bin
@@ -44,13 +45,17 @@ BUILD_DIRS := $(BIN_DIR) $(OBJ_DIR) $(DEP_DIR) $(DAT_DIR)
 # Some lovely CFLAGs
 CFLAGS  := -std=gnu++0x
 # No libs yet
-#CFLAGS  := -L$(LIB_DIR) 
+#CFLAGS  += -L$(LIB_DIR) 
+
+ifdef GRAPHICS
+CFLAGS  += -DGRAPHICS $(shell GraphicsMagick++-config --cppflags --cxxflags --ldflags --libs)
+endif
 
 # Some lovely DEBUG options (make DEBUG=1)
 ifdef DEBUG
-  CFLAGS  += -Og -g -pg 
+  CFLAGS  += -O0 -g -pg 
 else
-  CFLAGS  += -O3 
+  CFLAGS  += -O4 
 endif
 
 # Default - run all tests
@@ -159,3 +164,4 @@ $(eval $(foreach bdir,$(BUILD_DIRS),$(call BUILD_DIR,$(bdir))))
 # Some test cases.  Who needs a framework?
 #
 $(eval $(call TEST_CASE,feedforwardnetwork1,$(TST_DIR)/FeedForwardNetworkTest1.cpp,,mnist))
+$(eval $(call TEST_CASE,autoencodertest1,$(TST_DIR)/AutoencoderTest1.cpp,,mnist))

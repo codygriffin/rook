@@ -28,6 +28,7 @@
 #define INCLUDED_MATRIX_H
 
 #include <iostream>
+#include <random>
 #include <iomanip>
 #include <cstdint>
 #include <array>
@@ -48,8 +49,13 @@ struct Matrix {
   static const size_t rows = M;
   static const size_t cols = N;
 
+  typedef Matrix<1, N, K> Row;
+  typedef Matrix<M, 1, K> Col;
+
   // Constructors
   Matrix(const std::array<K, M*N>& m); 
+  Matrix(std::function<K (size_t, size_t)> func) { generate(func); } 
+  Matrix(std::function<K (size_t)>         func) { generate(func); } 
   Matrix(); 
   
   // Arithmetic
@@ -62,8 +68,11 @@ struct Matrix {
   K  at(size_t i) const;
   K& at(size_t i);
 
-  Matrix<M, 1, K> col(size_t i) const;
-  Matrix<1, N, K> row(size_t i) const;
+  Col&  col(size_t i);
+  Row&  row(size_t i);
+
+  Col   col(size_t i) const;
+  Row   row(size_t i) const;
 
   // TODO Slicing? (MatLab : syntax)
   
@@ -71,11 +80,19 @@ struct Matrix {
 
   Matrix<N, M, K> transpose() const;
 
-  // TODO provide overloaded versions w/ std::function
-  Matrix<M, N, K>  apply(std::function<K (K)> func)              const;
-  Matrix<M, N, K>  apply(std::function<K (size_t, size_t)> func) const;
-  Matrix<M, N, K> vapply(std::function<K (size_t)> func)         const;
-  Matrix<M, N, K>  apply(std::function<K (void)> func)           const;
+  void             generate(std::function<K (size_t, size_t)> func);
+  void             generate(std::function<K (size_t)>         func);
+
+  Matrix<M, N, K>  apply   (std::function<K (K)> func)              const;
+
+  Matrix<M, N, K>  each    (std::function<K (size_t, size_t)> func) const;
+  Matrix<M, N, K>  each    (std::function<K (size_t)> func)         const;
+
+  Matrix<M, N, K>  eachRow (std::function<void (size_t, const Row&)> func)   const;
+  Matrix<M, N, K>  eachCol (std::function<void (size_t, const Col&)> func)   const;
+
+  std::array<K, M*N>&       raw()       { return weightMatrix_; }
+  const std::array<K, M*N>& raw() const { return weightMatrix_; }
 
 private:
   std::array<K, M*N> weightMatrix_;
@@ -83,13 +100,34 @@ private:
 
 // A column vector of size N has N rows and 
 // a single column
-template <size_t N, typename K>
+template <size_t N, typename K = float>
 using ColVector = Matrix<N, 1, K>;
 
 // A row vector of size N has a single row
 // and N columns
-template <size_t N, typename K>
+template <size_t N, typename K = float>
 using RowVector = Matrix<1, N, K>;
+
+//------------------------------------------------------------------------------
+// Some handy generators
+template <typename K>
+K zero(size_t i, size_t j) {
+  return (K)0.0f;
+}
+
+template <typename K>
+K zero(size_t i) {
+  return (K)0.0f;
+}
+
+std::function<float (size_t, size_t)> normal(float mean, float stddev) {
+  static std::random_device rd;
+  static std::mt19937       gen(rd());
+  static std::normal_distribution<> normal(mean, stddev);
+  return [&](size_t i, size_t j) -> float {
+    return normal(gen); 
+  };
+}
 
 //------------------------------------------------------------------------------
 

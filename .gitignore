@@ -3,6 +3,7 @@ mak/*
 dep/*
 lib/*
 obj/*
+img/*
 data/*
 .*.swp
 

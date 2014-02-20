@@ -96,15 +96,23 @@ Matrix<M, N, K>::at(size_t i) {
 }
 
 template <size_t M, size_t N, typename K>
-Matrix<M, 1, K>  
-Matrix<M, N, K>::col(size_t i) const {
-  throw std::runtime_error("unimplemented");
+typename Matrix<M, N, K>::Col
+Matrix<M, N, K>::col(size_t j) const {
+  Matrix<M, N, K>::Col result;
+  for (int i = 0; i < M; i++) {
+    result.at(i) = at(i, j); 
+  }
+  return result;
 }
 
 template <size_t M, size_t N, typename K>
-Matrix<1, N, K>  
+typename Matrix<M, N, K>::Row
 Matrix<M, N, K>::row(size_t i) const {
-  throw std::runtime_error("unimplemented");
+  Matrix<M, N, K>::Row result;
+  for (int j = 0; j < N; j++) {
+    result.at(j) = at(i, j); 
+  }
+  return result;
 }
 
 template <size_t M, size_t N, typename K>
@@ -136,6 +144,24 @@ Matrix<M, N, K>::transpose() const {
 //------------------------------------------------------------------------------
 
 template <size_t M, size_t N, typename K>
+void
+Matrix<M, N, K>::generate(std::function<K (size_t, size_t)> func) {
+  for (size_t i = 0; i < M; i++) {
+    for (size_t j = 0; j < N; j++) {
+      at(i, j) = func(i, j);  
+    }
+  }
+}
+
+template <size_t M, size_t N, typename K>
+void
+Matrix<M, N, K>::generate(std::function<K (size_t)> func) {
+  for (size_t i = 0; i < std::max(M, N); i++) {
+    at(i) = func(i);  
+  }
+}
+
+template <size_t M, size_t N, typename K>
 Matrix<M, N, K> 
 Matrix<M, N, K>::apply(std::function<K (K)> func) const {
   Matrix<M, N, K> result;
@@ -149,7 +175,7 @@ Matrix<M, N, K>::apply(std::function<K (K)> func) const {
 
 template <size_t M, size_t N, typename K>
 Matrix<M, N, K> 
-Matrix<M, N, K>::apply(std::function<K (size_t, size_t)> func) const {
+Matrix<M, N, K>::each(std::function<K (size_t, size_t)> func) const {
   Matrix<M, N, K> result;
   for (size_t i = 0; i < M; i++) {
     for (size_t j = 0; j < N; j++) {
@@ -161,9 +187,9 @@ Matrix<M, N, K>::apply(std::function<K (size_t, size_t)> func) const {
 
 template <size_t M, size_t N, typename K>
 Matrix<M, N, K> 
-Matrix<M, N, K>::vapply(std::function<K (size_t)> func) const {
+Matrix<M, N, K>::each(std::function<K (size_t)> func) const {
   Matrix<M, N, K> result;
-  for (size_t i = 0; i < std::max(M, N); i++) {
+  for (size_t i = 0; i < std::max(M,N); i++) {
     result.at(i) = func(i);  
   }
   return result;
@@ -171,12 +197,20 @@ Matrix<M, N, K>::vapply(std::function<K (size_t)> func) const {
 
 template <size_t M, size_t N, typename K>
 Matrix<M, N, K> 
-Matrix<M, N, K>::apply(std::function<K (void)> func) const {
+Matrix<M, N, K>::eachRow(std::function<void (size_t, const Matrix<M, N, K>::Row&)> func) const {
   Matrix<M, N, K> result;
   for (size_t i = 0; i < M; i++) {
-    for (size_t j = 0; j < N; j++) {
-      result.at(i, j) = func();  
-    } 
+    func(i, row(i));  
+  }
+  return result;
+}
+
+template <size_t M, size_t N, typename K>
+Matrix<M, N, K> 
+Matrix<M, N, K>::eachCol(std::function<void (size_t, const Matrix<M, N, K>::Col&)> func) const {
+  Matrix<M, N, K> result;
+  for (size_t i = 0; i < N; i++) {
+    func(i, col(i));  
   }
   return result;
 }

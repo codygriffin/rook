@@ -14,7 +14,7 @@ FeedFowardNetwork classes to learn some digits.
 
 ## Goals
 
-* No dependencies
+* No dependencies (except GraphicsMagick for testing)
 * Readability over performance
 * Simple
 
@@ -22,6 +22,9 @@ FeedFowardNetwork classes to learn some digits.
 
 Pretty standard fare.  Requires a recent version of g++ or clang (C++11 support),
 along with GNU Make and curl (for retrieving MNIST).
+
+You will need GraphicsMagick installed (along with headers and such) to see
+filters and autoencoder test results.
 
 ```
 git clone https://github.com/codygriffin/rook.git

@@ -51,6 +51,7 @@ struct FeedForwardNetwork {
   typedef typename FeedForwardNetwork<HiddenLayers...>::Output Output;
   typedef typename InputLayer::Input                           Input;
 
+  // Initialize network (default)
   FeedForwardNetwork()
   : pHiddenLayers_(new FeedForwardNetwork<HiddenLayers...>()) {
   }
@@ -63,23 +64,23 @@ struct FeedForwardNetwork {
     return pHiddenLayers_->infer(next);
   }
 
-  // Function call semantics aren't a bad thing...
-  Output
-  operator()(Input const& input) const {
-    return infer(input);
+  std::tuple<Input, Output>
+  learn(const Input& input, const Output& target, float learningRate = 0.1f) {
+    // Calculate the output of this layer
+    const auto next   = inputLayer_.infer(input);
+    const auto herror = pHiddenLayers_->learn(next, target);
+
+    // This is turd
+    const auto error  = inputLayer_.correct(input, next, std::get<0>(herror));
+    return std::make_tuple(std::get<0>(error), std::get<1>(herror));
   }
 
-  Input
-  learn(const Input& input, const Output& target) {
-    // Calculate the output of this layer
-    auto next  = inputLayer_.infer(input);
+  InputLayer& getLayer() {
+    return inputLayer_;
+  }
 
-    // Pass this forward, along with our final target
-    // (we don't know what intermediate values should be)
-    auto error = pHiddenLayers_->learn(next, target);
-    
-    // Back propagate our error
-    return inputLayer_.learn(input, next, error);
+  FeedForwardNetwork<HiddenLayers...>& getRemainNetwork() {
+    return *pHiddenLayers_;
   }
 
 private:
@@ -98,22 +99,22 @@ struct FeedForwardNetwork<OutputLayer> {
     return outputLayer_.infer(input);
   }
 
-  // Function call semantics aren't a bad thing...
-  Output
-  operator()(Input const& input) const {
-    return infer(input);
-  }
-
-  Input
-  learn(const Input& input, const Output& target) {
+  std::tuple<Input, Output>
+  learn(const Input& input, const Output& target, float learningRate = 0.1f) {
     // The input to the final layer is input, 
     // and our overall target is target
     // we generate a predicted output
     const auto prediction = infer(input);
 
+    // Update our output weights and get our errors
+    const auto error      = outputLayer_.learn(input, prediction, target);
+
     // Back propagate our error
-    const auto error      = target - prediction;
-    return outputLayer_.learn(input, prediction, error);
+    return error;
+  }
+
+  OutputLayer& getLayer() { 
+    return outputLayer_;
   }
 
 private:
